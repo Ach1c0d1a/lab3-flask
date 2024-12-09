@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tarjetas de Cliente</title>
+</head>
+<body>
+    <h1>Tarjetas de Cliente</h1>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>Número de Tarjeta</th>
+                <th>Tarjeta Desencriptada</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for card in cards %}
+            <tr>
+                <td>{{ card['creditCard'] }}</td>
+                <td>{{ card['decryptedCC'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

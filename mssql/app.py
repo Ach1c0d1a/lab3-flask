@@ -1,72 +1,49 @@
-from flask import Flask, request, jsonify
-import pyodbc
-import rsa
+from flask import Flask, render_template, jsonify, request
+from sqlalchemy import create_engine, text
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+import base64
 
 app = Flask(__name__)
 
 # Configuración de la conexión a la base de datos
-DB_CONFIG = {
-    'server': 'localhost',
-    'database': 'db_bank',
-    'username': 'cajero',
-    'password': 1234
-}
+DB_URI = "mssql+pyodbc://cajero:1234@127.0.0.1/db_bank?driver=ODBC+Driver+17+for+SQL+Server"
+engine = create_engine(DB_URI)
 
-def get_db_connection():
-    """Conecta a la base de datos y retorna la conexión"""
-    conn = pyodbc.connect(
-        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-        f"SERVER={DB_CONFIG['server']};"
-        f"DATABASE={DB_CONFIG['database']};"
-        f"UID={DB_CONFIG['username']};"
-        f"PWD={DB_CONFIG['password']}"
-    )
-    return conn
+# Clave de desencriptación (debe coincidir con la usada en SQL Server)
+SYMMETRIC_KEY = b'lscck_04'[:64]
 
-(public_key, private_key) = rsa.newkeys(512)
-
-@app.route('/get-customer-card', methods=['GET'])
-def get_customer_card():
-    customer_id = request.args.get('customer_id')
-    
-    if not customer_id:
-        return jsonify({"error": "Falta el parámetro 'customer_id'"}), 400
-
+def decrypt_aes256(encrypted_data):
+    """Desencripta un dato cifrado con AES-256"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Consulta SQL
-        query = (
-            "select cd.creditCard from customer c"
-            "inner join cards cd"
-            "on cd.customer = c.cedcustomer"
-            "where cd.customer = ?;"
-        )
-        cursor.execute(query, customer_id)
-        rows = cursor.fetchall()
-        
-        # Si no se encuentran datos
-        if not rows:
-            return jsonify({"error": "No se encontraron tarjetas para este cliente"}), 404
-        
-        # Procesar los resultados y convertir el mensaje cifrado
-        result = [
-            {
-                "creditCard": row[0],
-                "encryptedCC": row[1].hex() if isinstance(row[1], bytes) else row[1],  # Convierte los bytes a hexadecimal si es necesario
-                "decryptedCC": row[2]
-            }
-            for row in rows
-        ]
-        
-        return jsonify(result)
-    
+        cipher = AES.new(SYMMETRIC_KEY, AES.MODE_ECB)  # Modo ECB usado como ejemplo
+        decrypted_data = unpad(cipher.decrypt(base64.b64decode(encrypted_data)), AES.block_size)
+        return decrypted_data.decode('utf-8')
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-    finally:
-        conn.close()
+        print(f"Error en desencriptación: {e}")
+        return None
 
-if __name__ == '__main__':
+@app.route('/get_card/<customer_id>', methods=['GET'])
+def get_card(customer_id):
+    """Endpoint para obtener y desencriptar tarjetas de un cliente"""
+    with engine.connect() as conn:
+        # Recupera los datos cifrados
+        result = conn.execute(text("""
+            OPEN SYMMETRIC KEY lscck_04 DECRYPTION BY CERTIFICATE secure_credit_cards;
+            SELECT creditCard, CONVERT(VARCHAR, DecryptByKey(encryptedCC)) as decryptedCC
+            FROM cards WHERE customer = :customer_id;
+            CLOSE SYMMETRIC KEY lscck_04;
+        """), {"customer_id": customer_id})
+        cards = [{"creditCard": row["creditCard"], "decryptedCC": row["decryptedCC"]} for row in result]
+
+    return jsonify(cards)
+
+@app.route('/html_cards/<customer_id>')
+def html_cards(customer_id):
+    """Muestra las tarjetas en un archivo HTML"""
+    response = get_card(customer_id)
+    cards = response.json
+    return render_template('cards.html', cards=cards)
+
+if __name__ == "__main__":
     app.run(debug=True, port=5000)
