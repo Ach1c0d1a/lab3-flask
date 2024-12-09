@@ -1,75 +1,59 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, render_template
 import mysql.connector
-import rsa
 
 app = Flask(__name__)
 
-# Configuración de la conexión a la base de datos MySQL
+# Configuración de conexión a la base de datos
 DB_CONFIG = {
-    'host': 'localhost',   # Cambiado de 'server' a 'host'
-    'database': 'db_bank',
-    'user': 'cajero',      # Cambiado de 'username' a 'user'
-    'password': '1234'
+    'host': 'localhost',       # Cambiar por el host de tu base de datos
+    'user': 'cajero',      # Usuario de MySQL
+    'password': '1234',  # Contraseña de MySQL
+    'database': 'db_bank'      # Nombre de la base de datos
 }
 
 def get_db_connection():
-    """Conecta a la base de datos y retorna la conexión"""
-    conn = mysql.connector.connect(
-        host=DB_CONFIG['host'],
-        database=DB_CONFIG['database'],
-        user=DB_CONFIG['user'],
-        password=DB_CONFIG['password']
-    )
-    return conn
+    """Establece la conexión a la base de datos."""
+    return mysql.connector.connect(**DB_CONFIG)
 
-(public_key, private_key) = rsa.newkeys(512)
-
-# Ruta para mostrar una página HTML
-@app.route('/')
-def index():
-    return render_template('index.html')  # Cargar la plantilla HTML
-
-@app.route('/get-customer-card', methods=['GET'])
-def get_customer_card():
-    customer_id = request.args.get('customer_id')
+@app.route('/get_card', methods=['GET'])
+def get_card():
+    """Endpoint para obtener y desencriptar tarjetas."""
+    customer_id = request.args.get('customer')  # Obtener el parámetro de la URL
     
     if not customer_id:
-        return jsonify({"error": "Falta el parámetro 'customer_id'"}), 400
+        return "El parámetro 'customer' es obligatorio.", 400
 
     try:
+        # Conexión a la base de datos
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
 
-        # Consulta SQL para MySQL
-        query = (
-            "SELECT cd.creditCard FROM customer c "
-            "INNER JOIN cards cd ON cd.customer = c.cedcustomer "
-            "WHERE cd.customer = %s;"
-        )
+        # Consulta para desencriptar las tarjetas
+        query = """
+            SELECT 
+                c.creditCard AS creditCard,
+                AES_DECRYPT(c.encryptedCC, 'my_secret_key') AS decryptedCC
+            FROM cards c
+            WHERE c.customer_id = %s;
+        """
         cursor.execute(query, (customer_id,))
+        
+        # Obtener resultados
         rows = cursor.fetchall()
+        cards = [{"creditCard": row["creditCard"], "decryptedCC": row["decryptedCC"].decode()} for row in rows]
 
-        # Si no se encuentran datos
-        if not rows:
-            return jsonify({"error": "No se encontraron tarjetas para este cliente"}), 404
-        
-        # Procesar los resultados y convertir el mensaje cifrado
-        result = [
-            {
-                "creditCard": row[0],
-                "encryptedCC": row[1].hex() if isinstance(row[1], bytes) else row[1],  # Convierte los bytes a hexadecimal si es necesario
-                "decryptedCC": row[2]
-            }
-            for row in rows
-        ]
-        
-        return jsonify(result)
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-    finally:
+        cursor.close()
         conn.close()
+
+        # Si no hay resultados
+        if not cards:
+            return render_template('cards.html', customer_id=customer_id, cards=None)
+
+        # Renderizar resultados en HTML
+        return render_template('cards.html', customer_id=customer_id, cards=cards)
+
+    except Exception as e:
+        return f"Error al consultar la base de datos: {str(e)}", 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

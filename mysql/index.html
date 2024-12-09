@@ -1,18 +1,31 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API de Tarjetas de Cliente</title>
+    <title>Tarjetas del Cliente</title>
 </head>
 <body>
-    <h1>Bienvenido a la API de Tarjetas de Cliente</h1>
-    <p>Para obtener información sobre la tarjeta de un cliente, por favor ingrese el ID del cliente:</p>
-    
-    <form action="/get-customer-card" method="get">
-        <label for="customer_id">ID del Cliente:</label>
-        <input type="text" id="customer_id" name="customer_id" required>
-        <button type="submit">Obtener Tarjeta</button>
-    </form>
+    <h1>Tarjetas del Cliente: {{ customer_id }}</h1>
+    {% if cards %}
+        <table border="1">
+            <thead>
+                <tr>
+                    <th>Tarjeta de Crédito</th>
+                    <th>Tarjeta Desencriptada</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for card in cards %}
+                    <tr>
+                        <td>{{ card.creditCard }}</td>
+                        <td>{{ card.decryptedCC }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No se encontraron tarjetas para el cliente {{ customer_id }}.</p>
+    {% endif %}
 </body>
 </html>
